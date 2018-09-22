@@ -13,7 +13,7 @@
 #define STB_FFT_IMPLEMENTAION
 
 #include "stb_fft.h"
- 
+
 typedef struct {
     sample_real_t *inFifo;
     sample_real_t *outFifo;
@@ -61,16 +61,16 @@ void freePlanData(planData *data) {
     data->synthesizedMagnitude = 0;
 }
 
-int makePlanData(size_t framesize, size_t overSampling, size_t sampleRate, planData *data) {
-    data->inFifo = (sample_real_t *) calloc(framesize, sizeof(sample_real_t));
-    data->outFifo = (sample_real_t *) calloc(framesize, sizeof(sample_real_t));
-    data->windowing = (sample_real_t *) calloc(framesize, sizeof(sample_real_t));
-    data->fftWorkspace = (sample_real_t *) calloc(framesize * 2, sizeof(sample_real_t));
-    data->lastPhase = (sample_real_t *) calloc(framesize / 2 + 1, sizeof(sample_real_t));
-    data->phaseSum = (sample_real_t *) calloc(framesize / 2 + 1, sizeof(sample_real_t));
-    data->outputAccumulator = (sample_real_t *) calloc(framesize * 2, sizeof(sample_real_t));
-    data->synthesizedFrequency = (sample_real_t *) calloc(framesize, sizeof(sample_real_t));
-    data->synthesizedMagnitude = (sample_real_t *) calloc(framesize, sizeof(sample_real_t));
+int makePlanData(size_t frameSize, size_t overSampling, size_t sampleRate, planData *data) {
+    data->inFifo = (sample_real_t *) calloc(frameSize, sizeof(sample_real_t));
+    data->outFifo = (sample_real_t *) calloc(frameSize, sizeof(sample_real_t));
+    data->windowing = (sample_real_t *) calloc(frameSize, sizeof(sample_real_t));
+    data->fftWorkspace = (sample_real_t *) calloc(frameSize * 2, sizeof(sample_real_t));
+    data->lastPhase = (sample_real_t *) calloc(frameSize / 2 + 1, sizeof(sample_real_t));
+    data->phaseSum = (sample_real_t *) calloc(frameSize / 2 + 1, sizeof(sample_real_t));
+    data->outputAccumulator = (sample_real_t *) calloc(frameSize * 2, sizeof(sample_real_t));
+    data->synthesizedFrequency = (sample_real_t *) calloc(frameSize, sizeof(sample_real_t));
+    data->synthesizedMagnitude = (sample_real_t *) calloc(frameSize, sizeof(sample_real_t));
     if (!data->inFifo ||
         !data->outFifo ||
         !data->fftWorkspace ||
@@ -83,15 +83,17 @@ int makePlanData(size_t framesize, size_t overSampling, size_t sampleRate, planD
         freePlanData(data);
         return 0;
     }
-    data->frameSize = framesize;
+    data->frameSize = frameSize;
     data->overSampling = overSampling;
     data->sampleRate = sampleRate;
     return 1;
 }
 
 void pitchshift(sample_real_t pitch, const short *in, short *out, size_t samples, planData *data) {
-    size_t framesize = data->frameSize;
-    size_t oversampling = data->overSampling;
+    if (data == NULL)
+        return;
+    size_t frameSize = data->frameSize;
+    size_t overSampling = data->overSampling;
     sample_real_t *inFifo = data->inFifo;
     sample_real_t *outFifo = data->outFifo;
     sample_real_t *fftWorkspace = data->fftWorkspace;
@@ -103,79 +105,80 @@ void pitchshift(sample_real_t pitch, const short *in, short *out, size_t samples
     sample_real_t *synthesizedMagnitude = data->synthesizedMagnitude;
     sample_real_t magnitude, phase, deltaPhase, real, imag;
     int64_t i, k, qpd, index;
-    int64_t halfFramesize = framesize / 2 + 1;
-    int64_t step = framesize / oversampling;
-    sample_real_t binFrequencies = (sample_real_t) data->sampleRate / (sample_real_t) framesize;
-    sample_real_t expected = STB_TWOPI / oversampling;
-    int64_t fifoLatency = framesize - step;
+    int64_t halfFrameSize = frameSize / 2 + 1;
+    int64_t step = frameSize / overSampling;
+    sample_real_t binFrequencies = (sample_real_t) data->sampleRate / (sample_real_t) frameSize;
+    sample_real_t expected = STB_TWOPI / overSampling;
+    int64_t fifoLatency = frameSize - step;
     if (data->overlap == 0)
         data->overlap = fifoLatency;
-    for (k = 0; k < framesize; k++) {
-        windowing[k] = -.5f * cosf(STB_TWOPI * k / framesize) + 0.5f;
+    for (k = 0; k < frameSize; k++) {
+        windowing[k] = -.5f * cosf(STB_TWOPI * k / frameSize) + 0.5f;
     }
     sample_real_t pitchWeight = pitch * binFrequencies;
-    sample_real_t oversamp_weight = (oversampling / STB_TWOPI) * pitchWeight;
+    sample_real_t oversamp_weight = (overSampling / STB_TWOPI) * pitchWeight;
     sample_real_t meanExpected = expected / binFrequencies;
     stb_fft_real_plan *plan = NULL;
-    int plan_bytes = stb_fft_real_plan_dft_1d(framesize, NULL);
+    int plan_bytes = stb_fft_real_plan_dft_1d(frameSize, NULL);
     if (plan_bytes > 0) {
         plan = (stb_fft_real_plan *) calloc(plan_bytes, 1);
         if (plan != NULL) {
-            stb_fft_real_plan_dft_1d(framesize, plan);
+            stb_fft_real_plan_dft_1d(frameSize, plan);
         }
     }
-    for (i = 0; i < samples; i++) {
-        inFifo[data->overlap] = in[i];
-        out[i] = outFifo[data->overlap - fifoLatency];
-        data->overlap++;
-        if (data->overlap >= framesize) {
-            data->overlap = fifoLatency;
-
-            for (k = 0; k < framesize; k++) {
-                fftWorkspace[k] = inFifo[k] * windowing[k];
-            }
-            stb_fft_r2c_exec(plan, fftWorkspace, (cmplx *) fftWorkspace);
-            memset(synthesizedMagnitude, 0, framesize * sizeof(sample_real_t));
-            memset(synthesizedFrequency, 0, framesize * sizeof(sample_real_t));
-            for (k = 0; k < halfFramesize; k++) {
-                index = k * pitch;
-                if (index < halfFramesize) {
-                    real = fftWorkspace[2 * k];
-                    imag = fftWorkspace[2 * k + 1];
-                    magnitude = sqrtf(real * real + imag * imag);
-                    phase = atan2f(imag, real);
-                    deltaPhase = (phase - lastPhase[k]) - k * expected;
-                    qpd = deltaPhase / STB_PI;
-                    if (qpd >= 0)
-                        qpd += qpd & 1;
-                    else
-                        qpd -= qpd & 1;
-                    deltaPhase -= M_PI * (sample_real_t) qpd;
-                    lastPhase[k] = phase;
-                    synthesizedMagnitude[index] += magnitude;
-                    synthesizedFrequency[index] = k * pitchWeight + oversamp_weight * deltaPhase;
+    if (plan) {
+        for (i = 0; i < samples; i++) {
+            inFifo[data->overlap] = in[i];
+            out[i] = outFifo[data->overlap - fifoLatency];
+            data->overlap++;
+            if (data->overlap >= frameSize) {
+                data->overlap = fifoLatency;
+                for (k = 0; k < frameSize; k++) {
+                    fftWorkspace[k] = inFifo[k] * windowing[k];
                 }
+                stb_fft_r2c_exec(plan, fftWorkspace, (cmplx *) fftWorkspace);
+                memset(synthesizedMagnitude, 0, frameSize * sizeof(sample_real_t));
+                memset(synthesizedFrequency, 0, frameSize * sizeof(sample_real_t));
+                for (k = 0; k < halfFrameSize; k++) {
+                    index = k * pitch;
+                    if (index < halfFrameSize) {
+                        real = fftWorkspace[2 * k];
+                        imag = fftWorkspace[2 * k + 1];
+                        magnitude = sqrtf(real * real + imag * imag);
+                        phase = atan2f(imag, real);
+                        deltaPhase = (phase - lastPhase[k]) - k * expected;
+                        qpd = deltaPhase / STB_PI;
+                        if (qpd >= 0)
+                            qpd += qpd & 1;
+                        else
+                            qpd -= qpd & 1;
+                        deltaPhase -= M_PI * (sample_real_t) qpd;
+                        lastPhase[k] = phase;
+                        synthesizedMagnitude[index] += magnitude;
+                        synthesizedFrequency[index] = k * pitchWeight + oversamp_weight * deltaPhase;
+                    }
+                }
+                for (k = 0; k < halfFrameSize; k++) {
+                    phaseSum[k] += meanExpected * synthesizedFrequency[k];
+                    phase = phaseSum[k];
+                    magnitude = synthesizedMagnitude[k];
+                    stbSinCos(phase, &fftWorkspace[2 * k + 1], &fftWorkspace[2 * k]);
+                    fftWorkspace[2 * k] *= magnitude;
+                    fftWorkspace[2 * k + 1] *= magnitude;
+                }
+                memset(fftWorkspace + (frameSize + 2), 0, sizeof(sample_real_t) * (frameSize - 2));
+                stb_fft_c2r_exec(plan, (cmplx *) fftWorkspace, fftWorkspace);
+                sample_real_t idx = 0;
+                sample_real_t accOversamp = 2.f / (halfFrameSize * overSampling);
+                for (k = 0; k < frameSize; k++) {
+                    outputAccumulator[k] += windowing[k] * fftWorkspace[(int) (idx) >> 1] * accOversamp;
+                    idx += 2;
+                }
+                memcpy(outFifo, outputAccumulator, step * sizeof(sample_real_t));
+                memmove(outputAccumulator, outputAccumulator + step, frameSize * sizeof(sample_real_t));
+                memmove(inFifo, inFifo + step, fifoLatency * sizeof(sample_real_t));
             }
-            for (k = 0; k < halfFramesize; k++) {
-                phaseSum[k] += meanExpected * synthesizedFrequency[k];
-                phase = phaseSum[k];
-                magnitude = synthesizedMagnitude[k];
-                stbSinCos(phase, &fftWorkspace[2 * k + 1], &fftWorkspace[2 * k]);
-                fftWorkspace[2 * k] *= magnitude;
-                fftWorkspace[2 * k + 1] *= magnitude;
-            }
-            memset(fftWorkspace + (framesize + 2), 0, sizeof(sample_real_t) * (framesize - 2));
-            stb_fft_c2r_exec(plan, (cmplx *) fftWorkspace, fftWorkspace);
-            sample_real_t idx = 0;
-            sample_real_t accOversamp = 2.f / (halfFramesize * oversampling);
-            for (k = 0; k < framesize; k++) {
-                outputAccumulator[k] += windowing[k] * fftWorkspace[(int) (idx) >> 1] * accOversamp;
-                idx += 2;
-            }
-            memcpy(outFifo, outputAccumulator, step * sizeof(sample_real_t));
-            memmove(outputAccumulator, outputAccumulator + step, framesize * sizeof(sample_real_t));
-            memmove(inFifo, inFifo + step, fifoLatency * sizeof(sample_real_t));
         }
+        free(plan);
     }
-    free(plan);
 }
