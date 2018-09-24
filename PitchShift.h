@@ -61,7 +61,7 @@ void freePlanData(planData *data) {
     data->synthesizedMagnitude = 0;
 }
 
-int makePlanData(size_t frameSize, size_t overSampling, size_t sampleRate, planData *data) {
+int makePlanData(size_t frameSize, size_t sampleRate, planData *data) {
     data->inFifo = (sample_real_t *) calloc(frameSize, sizeof(sample_real_t));
     data->outFifo = (sample_real_t *) calloc(frameSize, sizeof(sample_real_t));
     data->windowing = (sample_real_t *) calloc(frameSize, sizeof(sample_real_t));
@@ -84,7 +84,6 @@ int makePlanData(size_t frameSize, size_t overSampling, size_t sampleRate, planD
         return 0;
     }
     data->frameSize = frameSize;
-    data->overSampling = overSampling;
     data->sampleRate = sampleRate;
     return 1;
 }
@@ -93,7 +92,7 @@ void pitchshift(sample_real_t pitch, const short *in, short *out, size_t samples
     if (data == NULL)
         return;
     size_t frameSize = data->frameSize;
-    size_t overSampling = data->overSampling;
+    size_t overSampling = 4;
     sample_real_t *inFifo = data->inFifo;
     sample_real_t *outFifo = data->outFifo;
     sample_real_t *fftWorkspace = data->fftWorkspace;
@@ -137,13 +136,14 @@ void pitchshift(sample_real_t pitch, const short *in, short *out, size_t samples
                     fftWorkspace[k] = inFifo[k] * windowing[k];
                 }
                 stb_fft_r2c_exec(plan, fftWorkspace, (cmplx *) fftWorkspace);
+                cmplx *outCmplx = (cmplx *) fftWorkspace;
                 memset(synthesizedMagnitude, 0, frameSize * sizeof(sample_real_t));
                 memset(synthesizedFrequency, 0, frameSize * sizeof(sample_real_t));
                 for (k = 0; k < halfFrameSize; k++) {
                     index = k * pitch;
                     if (index < halfFrameSize) {
-                        real = fftWorkspace[2 * k];
-                        imag = fftWorkspace[2 * k + 1];
+                        real = outCmplx[k].real;
+                        imag = outCmplx[k].imag;
                         magnitude = sqrtf(real * real + imag * imag);
                         phase = atan2f(imag, real);
                         deltaPhase = (phase - lastPhase[k]) - k * expected;
@@ -152,7 +152,7 @@ void pitchshift(sample_real_t pitch, const short *in, short *out, size_t samples
                             qpd += qpd & 1;
                         else
                             qpd -= qpd & 1;
-                        deltaPhase -= M_PI * (sample_real_t) qpd;
+                        deltaPhase -= STB_PI * (sample_real_t) qpd;
                         lastPhase[k] = phase;
                         synthesizedMagnitude[index] += magnitude;
                         synthesizedFrequency[index] = k * pitchWeight + oversamp_weight * deltaPhase;
@@ -162,17 +162,15 @@ void pitchshift(sample_real_t pitch, const short *in, short *out, size_t samples
                     phaseSum[k] += meanExpected * synthesizedFrequency[k];
                     phase = phaseSum[k];
                     magnitude = synthesizedMagnitude[k];
-                    stbSinCos(phase, &fftWorkspace[2 * k + 1], &fftWorkspace[2 * k]);
-                    fftWorkspace[2 * k] *= magnitude;
-                    fftWorkspace[2 * k + 1] *= magnitude;
+                    stbSinCos(phase, &outCmplx[k].imag, &outCmplx[k].real);
+                    outCmplx[k].real *= magnitude;
+                    outCmplx[k].imag *= magnitude;
                 }
                 memset(fftWorkspace + (frameSize + 2), 0, sizeof(sample_real_t) * (frameSize - 2));
                 stb_fft_c2r_exec(plan, (cmplx *) fftWorkspace, fftWorkspace);
-                sample_real_t idx = 0;
                 sample_real_t accOversamp = 2.f / (halfFrameSize * overSampling);
                 for (k = 0; k < frameSize; k++) {
-                    outputAccumulator[k] += windowing[k] * fftWorkspace[(int) (idx) >> 1] * accOversamp;
-                    idx += 2;
+                    outputAccumulator[k] += windowing[k] * fftWorkspace[k] * accOversamp;
                 }
                 memcpy(outFifo, outputAccumulator, step * sizeof(sample_real_t));
                 memmove(outputAccumulator, outputAccumulator + step, frameSize * sizeof(sample_real_t));

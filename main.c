@@ -5,6 +5,7 @@
 
 //ref:  https://github.com/mackron/dr_libs/blob/master/dr_wav.h
 #define DR_WAV_IMPLEMENTATION
+
 #include "dr_wav.h"
 #include "PitchShift.h"
 #include "timing.h"
@@ -102,12 +103,11 @@ int main(int argc, char *argv[]) {
     if (data_in != NULL) {
         float pitchShift = 0.9f;
         size_t ms = 50;
-        size_t overSampling = 4;
         size_t frameSize = sampleRate * ms / 1000;
         frameSize += frameSize % 2;
         planData pitchPlanData = {0};
         double startTime = now();
-        makePlanData(frameSize, overSampling, sampleRate, &pitchPlanData);
+        makePlanData(frameSize, sampleRate, &pitchPlanData);
         pitchshift(pitchShift, data_in, data_in, totalSampleCount, &pitchPlanData);
         // turn to minion pitch
         {
